@@ -1,0 +1,118 @@
+#include <ESP8266WiFi.h>          //https://github.com/esp8266/Arduino
+
+//needed for library
+#include <DNSServer.h>
+#include <ESP8266WebServer.h>
+#include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager
+
+//for LED status
+#include <Ticker.h>
+Ticker ticker;
+String apiKey = "";   //put your API KEY HERE
+const char* server = "api.thingspeak.com";
+float t = 22.2;
+float h = 55.5;
+float pm25 = 11.1;
+float hcho = 1.11;
+float co2 = 555;
+float noise = 333;
+float light = 111;
+WiFiClient client;
+void tick()
+{
+  //toggle state
+  int state = digitalRead(BUILTIN_LED);  // get the current state of GPIO1 pin
+  digitalWrite(BUILTIN_LED, !state);     // set pin to the opposite state
+}
+
+//gets called when WiFiManager enters configuration mode
+void configModeCallback (WiFiManager *myWiFiManager) {
+  Serial.println("Entered config mode");
+  Serial.println(WiFi.softAPIP());
+  //if you used auto generated SSID, print it
+  Serial.println(myWiFiManager->getConfigPortalSSID());
+  //entered config mode, make led toggle faster
+  ticker.attach(0.2, tick);
+}
+
+void setup() {
+  // put your setup code here, to run once:
+  Serial.begin(115200);
+
+  //set led pin as output
+  pinMode(BUILTIN_LED, OUTPUT);
+  // start ticker with 0.5 because we start in AP mode and try to connect
+  ticker.attach(0.6, tick);
+
+  //WiFiManager
+  //Local intialization. Once its business is done, there is no need to keep it around
+  WiFiManager wifiManager;
+  //reset settings - for testing
+  //wifiManager.resetSettings();
+
+  //set callback that gets called when connecting to previous WiFi fails, and enters Access Point mode
+  wifiManager.setAPCallback(configModeCallback);
+  //fetches ssid and pass and tries to connect
+  //if it does not connect it starts an access point with the specified name
+  //here  "AutoConnectAP"
+  //and goes into a blocking loop awaiting configuration
+  if (!wifiManager.autoConnect("Purelogic PLL001", "")) {
+    Serial.println("failed to connect and hit timeout");
+    //reset and try again, or maybe put it to deep sleep
+    ESP.reset();
+    delay(1000);
+  }
+  //if you get here you have connected to the WiFi
+  Serial.println("connected...yeey :)");
+  ticker.detach();
+  //keep LED on
+  digitalWrite(BUILTIN_LED, LOW);
+}
+
+void loop() {
+  delay(5000);
+  if (client.connect(server, 80)) {
+    // "184.106.153.149" or api.thingspeak.com
+    String postStr = apiKey;
+    postStr += "&field1=";
+    postStr += String(t);
+    postStr += "&field2=";
+    postStr += String(h);
+    postStr += "&field3=";
+    postStr += String(pm25);
+    postStr += "&field4=";
+    postStr += String(hcho);
+    postStr += "&field5=";
+    postStr += String(co2);
+    postStr += "&field6=";
+    postStr += String(noise);
+    postStr += "&field7=";
+    postStr += String(light);
+    postStr += "\r\n\r\n";
+    client.print("POST /update HTTP/1.1\n");
+    client.print("Host: api.thingspeak.com\n");
+    client.print("Connection: close\n");
+    client.print("X-THINGSPEAKAPIKEY: " + apiKey + "\n");
+    client.print("Content-Type: application/x-www-form-urlencoded\n");
+    client.print("Content-Length: ");
+    client.print(postStr.length());
+    client.print("\n\n");
+    client.print(postStr);
+    Serial.print("Temperature: ");
+    Serial.print(t);
+    Serial.print(" degrees Celcius Humidity: ");
+    Serial.println(h );
+    Serial.print(" PM2.5 ug/m3: ");
+    Serial.println(pm25);
+    Serial.print(" HCHO  : ");
+    Serial.println(hcho);
+    Serial.print(" CO2 : ");
+    Serial.println(co2);
+    Serial.println("Sent to Thingspeak");
+  }
+  client.stop();
+
+  Serial.println("Waiting...");
+  // thingspeak needs minimum 15 sec delay between updates
+  delay(20000);
+}
